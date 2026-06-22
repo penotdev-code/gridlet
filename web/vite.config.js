@@ -1,7 +1,9 @@
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 
-export default defineConfig({
+// Served at https://<user>.github.io/gridlet/ in production, root in dev.
+export default defineConfig(({ command }) => ({
+  base: command === 'build' ? '/gridlet/' : '/',
   plugins: [svelte()],
   server: {
     port: 5173,
@@ -10,4 +12,4 @@ export default defineConfig({
       allow: ['..'],
     },
   },
-})
+}))
