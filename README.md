@@ -3,8 +3,9 @@
 Générateur de grilles de mots croisés (style Scrabble) où les mots se croisent
 sur leurs lettres communes.
 
-- **Front** : Svelte 5 + Vite — saisie d'une liste de mots, sens autorisé,
-  écart minimum, tri esthétique des résultats, pagination et statistiques.
+- **Front** : Svelte 5 + Vite — saisie d'une liste de mots, **sens autorisé par
+  mot** (horizontal / vertical / les deux), écart minimum, tri esthétique des
+  résultats, pagination et statistiques.
 - **Moteur** : Rust compilé en **WebAssembly** — énumère les grilles possibles
   et leurs croisements, exécuté directement dans le navigateur (aucun serveur).
 
@@ -56,8 +57,8 @@ cargo test
 
 ## Comment fonctionne l'algorithme
 
-L'entrée : une liste de mots, un sens autorisé global (`horizontal`, `vertical`
-ou `both`) et un écart minimum entre mots parallèles (0–5).
+L'entrée : une liste de mots, chacun avec son sens autorisé (`horizontal`,
+`vertical` ou `both`), et un écart minimum entre mots parallèles (0–5).
 
 Le moteur **énumère** des grilles (pas une seule) :
 
