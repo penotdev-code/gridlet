@@ -15,8 +15,7 @@ export function initEngine() {
 
 /**
  * Generate crossword grids.
- * @param {{ words: string[],
- *           directions: 'horizontal'|'vertical'|'both',
+ * @param {{ words: { text: string, direction: 'horizontal'|'vertical'|'both' }[],
  *           gap: number }} input
  * @returns {{ grids: any[], count: number, pivots_tested: number, truncated: boolean }}
  */

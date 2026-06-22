@@ -21,24 +21,30 @@ use wasm_bindgen::prelude::*;
 
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
-enum Directions {
+enum WordDir {
     Horizontal,
     Vertical,
     Both,
 }
 
-fn default_directions() -> Directions {
-    Directions::Both
+fn default_word_dir() -> WordDir {
+    WordDir::Both
 }
 fn default_gap() -> i32 {
     1
 }
 
 #[derive(Deserialize)]
+struct WordSpec {
+    text: String,
+    /// Allowed orientation(s) for this specific word.
+    #[serde(default = "default_word_dir")]
+    direction: WordDir,
+}
+
+#[derive(Deserialize)]
 struct GenerateInput {
-    words: Vec<String>,
-    #[serde(default = "default_directions")]
-    directions: Directions,
+    words: Vec<WordSpec>,
     /// Minimum number of empty cells required between two parallel words (0–5).
     #[serde(default = "default_gap")]
     gap: i32,
@@ -58,6 +64,7 @@ struct GridOut {
     cols: i32,
     crossings: i32,
     letters: i32,
+    words: i32, // number of input words actually placed in this grid
     cells: Vec<CellOut>,
 }
 
@@ -88,8 +95,9 @@ impl Dir {
 }
 
 struct WordItem {
-    norm: Vec<char>, // accent-folded uppercase, for matching
-    disp: Vec<char>, // uppercased original, for display
+    norm: Vec<char>,    // accent-folded uppercase, for matching
+    disp: Vec<char>,    // uppercased original, for display
+    dirs: Vec<Dir>,     // orientations this word is allowed to take
 }
 
 #[derive(Clone)]
@@ -137,7 +145,6 @@ const NODE_BUDGET: i64 = 600_000;
 
 struct Engine<'a> {
     items: &'a [WordItem],
-    dirs: Vec<Dir>,
     gap: i32,
     cells: HashMap<(i32, i32), CellState>,
     sigs: HashSet<String>,
@@ -259,7 +266,7 @@ impl<'a> Engine<'a> {
                 if normalize_char(cell.ch) != ch {
                     continue;
                 }
-                for &dir in &self.dirs {
+                for &dir in &word.dirs {
                     let (dr, dc) = dir.step();
                     let row = coord.0 - dr * i as i32;
                     let col = coord.1 - dc * i as i32;
@@ -383,6 +390,7 @@ impl<'a> Engine<'a> {
             cols: max_c - min_c + 1,
             crossings,
             letters: cells.len() as i32,
+            words: placed_count as i32,
             cells,
         });
 
@@ -397,26 +405,23 @@ fn run(input: GenerateInput) -> Output {
         .words
         .iter()
         .filter_map(|w| {
-            let t = w.trim();
+            let t = w.text.trim();
             let norm: Vec<char> = t.chars().map(normalize_char).collect();
             if norm.is_empty() {
-                None
-            } else {
-                Some(WordItem {
-                    disp: t.chars().map(disp_char).collect(),
-                    norm,
-                })
+                return None;
             }
+            let dirs = match w.direction {
+                WordDir::Horizontal => vec![Dir::H],
+                WordDir::Vertical => vec![Dir::V],
+                WordDir::Both => vec![Dir::H, Dir::V],
+            };
+            Some(WordItem {
+                disp: t.chars().map(disp_char).collect(),
+                norm,
+                dirs,
+            })
         })
         .collect();
-
-    let dirs: Vec<Dir> = match input.directions {
-        Directions::Horizontal => vec![Dir::H],
-        Directions::Vertical => vec![Dir::V],
-        Directions::Both => vec![Dir::H, Dir::V],
-    };
-    // The pivot is laid out horizontally when allowed, else vertically.
-    let pivot_dir = if dirs.contains(&Dir::H) { Dir::H } else { Dir::V };
 
     let n = items.len();
     if n == 0 {
@@ -425,7 +430,6 @@ fn run(input: GenerateInput) -> Output {
 
     let mut engine = Engine {
         items: &items,
-        dirs: dirs.clone(),
         gap: input.gap.clamp(0, 5),
         cells: HashMap::new(),
         sigs: HashSet::new(),
@@ -441,6 +445,8 @@ fn run(input: GenerateInput) -> Output {
             break;
         }
         pivots_tested += 1;
+        // Pivot laid out horizontally when the word allows it, else vertically.
+        let pivot_dir = if items[p].dirs.contains(&Dir::H) { Dir::H } else { Dir::V };
         let undo = engine.place(&items[p], 0, 0, pivot_dir);
         let remaining: Vec<usize> = (0..n).filter(|&i| i != p).collect();
         engine.solve(&remaining);
@@ -473,10 +479,12 @@ pub fn generate_grid(input: JsValue) -> Result<JsValue, JsValue> {
 mod tests {
     use super::*;
 
-    fn input(words: &[&str], directions: Directions, gap: i32) -> GenerateInput {
+    fn input(words: &[&str], direction: WordDir, gap: i32) -> GenerateInput {
         GenerateInput {
-            words: words.iter().map(|s| s.to_string()).collect(),
-            directions,
+            words: words
+                .iter()
+                .map(|s| WordSpec { text: s.to_string(), direction })
+                .collect(),
             gap,
         }
     }
@@ -510,7 +518,7 @@ mod tests {
 
     #[test]
     fn enumerates_multiple_distinct_grids() {
-        let out = run(input(&["Paul", "Camille", "Arthur"], Directions::Both, 1));
+        let out = run(input(&["Paul", "Camille", "Arthur"], WordDir::Both, 1));
         println!("\n{} grids, sample:\n{}", out.count, render(&out.grids[0]));
         assert!(out.count >= 2, "expected several grids, got {}", out.count);
         for g in &out.grids {
@@ -524,7 +532,7 @@ mod tests {
 
     #[test]
     fn grids_are_deduplicated() {
-        let out = run(input(&["Paul", "Camille", "Arthur"], Directions::Both, 1));
+        let out = run(input(&["Paul", "Camille", "Arthur"], WordDir::Both, 1));
         let mut seen = HashSet::new();
         for g in &out.grids {
             let mut key: Vec<(i32, i32, String)> =
@@ -536,17 +544,56 @@ mod tests {
 
     #[test]
     fn larger_gap_reduces_or_keeps_solutions() {
-        let tight = run(input(&["Paul", "Camille", "Arthur", "Marie"], Directions::Both, 1));
-        let loose = run(input(&["Paul", "Camille", "Arthur", "Marie"], Directions::Both, 4));
+        let tight = run(input(&["Paul", "Camille", "Arthur", "Marie"], WordDir::Both, 1));
+        let loose = run(input(&["Paul", "Camille", "Arthur", "Marie"], WordDir::Both, 4));
         assert!(loose.count <= tight.count, "more spacing should not add grids");
     }
 
     #[test]
     fn horizontal_only_cannot_cross() {
-        let out = run(input(&["Paul", "Arthur"], Directions::Horizontal, 1));
+        let out = run(input(&["Paul", "Arthur"], WordDir::Horizontal, 1));
         // No crossing possible -> best coverage is a single word, no crossings.
         for g in &out.grids {
             assert_eq!(g.crossings, 0);
         }
+    }
+
+    #[test]
+    fn places_the_seven_name_list_in_full() {
+        // The exact list the user reported as sometimes incomplete.
+        let out = run(input(
+            &["Etienne", "Odile", "Bertrand", "Louis", "Thomas", "Marie-Claire", "Paul"],
+            WordDir::Both,
+            1,
+        ));
+        assert!(out.count >= 1, "no grid produced");
+        println!("\n{} grids, words placed = {}\n{}", out.count, out.grids[0].words, render(&out.grids[0]));
+        // The best grids must place all seven words.
+        assert_eq!(out.grids[0].words, 7, "best grid does not place all 7 words");
+        for g in &out.grids {
+            assert_eq!(g.words, 7);
+            assert_no_conflicts(g);
+        }
+    }
+
+    #[test]
+    fn per_word_direction_is_respected() {
+        // Camille forced vertical, Paul forced horizontal; they must cross.
+        let inp = GenerateInput {
+            words: vec![
+                WordSpec { text: "Paul".into(), direction: WordDir::Horizontal },
+                WordSpec { text: "Camille".into(), direction: WordDir::Vertical },
+            ],
+            gap: 1,
+        };
+        let out = run(inp);
+        assert!(out.count >= 1);
+        assert!(out.grids.iter().all(|g| g.words == 2 && g.crossings >= 1));
+    }
+
+    #[test]
+    fn words_field_matches_input_count() {
+        let out = run(input(&["Paul", "Camille", "Arthur"], WordDir::Both, 1));
+        assert!(out.grids.iter().all(|g| g.words == 3));
     }
 }

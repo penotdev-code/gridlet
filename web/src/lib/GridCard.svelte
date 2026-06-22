@@ -8,9 +8,10 @@
 <div class="card">
   <div class="rank">#{rank}</div>
   <div class="preview">
-    <GridView {grid} size={24} />
+    <GridView {grid} max={24} />
   </div>
   <div class="stats">
+    <span title="Mots placés">{grid.words} mots</span>
     <span title="Dimensions">{grid.cols}×{grid.rows}</span>
     <span title="Croisements">⛓ {grid.crossings}</span>
     <span title="Densité de remplissage">{Math.round(grid.m.fill * 100)}%</span>
@@ -49,13 +50,14 @@
     align-items: center;
     justify-content: center;
     width: 100%;
-    overflow: auto;
     min-height: 120px;
   }
   .stats {
     display: flex;
-    gap: 14px;
-    font-size: 13px;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px 12px;
+    font-size: 12.5px;
     color: var(--muted);
   }
   .stats span {

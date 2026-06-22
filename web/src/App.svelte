@@ -5,10 +5,9 @@
   import GridCard from './lib/GridCard.svelte'
 
   let nextId = 0
-  const makeWord = (text = '') => ({ id: nextId++, text })
+  const makeWord = (text = '', orientation = 'both') => ({ id: nextId++, text, orientation })
 
   let words = $state([makeWord('Paul'), makeWord('Camille'), makeWord('Arthur')])
-  let directions = $state('both')
   let gap = $state(1)
 
   let sortKey = $state('esthetique')
@@ -20,12 +19,6 @@
   let busy = $state(false)
   let error = $state('')
   let focusId = $state(null)
-
-  const directionOptions = [
-    { value: 'both', label: 'Les deux', icon: '✛' },
-    { value: 'horizontal', label: 'Horizontal', icon: '→' },
-    { value: 'vertical', label: 'Vertical', icon: '↓' },
-  ]
 
   const validWords = $derived(words.filter((w) => w.text.trim().length > 0))
 
@@ -40,6 +33,9 @@
   }
   function updateWord(id, text) {
     words = words.map((w) => (w.id === id ? { ...w, text } : w))
+  }
+  function setOrient(id, orientation) {
+    words = words.map((w) => (w.id === id ? { ...w, orientation } : w))
   }
   function removeWord(id) {
     words = words.filter((w) => w.id !== id)
@@ -59,8 +55,7 @@
     const t0 = performance.now()
     try {
       const out = await generateGrid({
-        words: validWords.map((w) => w.text.trim()),
-        directions,
+        words: validWords.map((w) => ({ text: w.text.trim(), direction: w.orientation })),
         gap,
       })
       const timeMs = performance.now() - t0
@@ -70,6 +65,7 @@
         timeMs,
         truncated: out.truncated,
         pivots: out.pivots_tested,
+        requested: validWords.length,
       }
       page = 0
     } catch (e) {
@@ -82,6 +78,8 @@
   }
 
   const allNoCrossing = $derived(grids.length > 0 && grids.every((g) => g.crossings === 0))
+  const coverage = $derived(grids.length > 0 ? grids[0].words : 0)
+  const incomplete = $derived(!!stats && grids.length > 0 && coverage < stats.requested)
 </script>
 
 <div class="app">
@@ -103,28 +101,13 @@
               {word}
               autofocus={focusId === word.id}
               oninput={(t) => updateWord(word.id, t)}
+              onorient={(o) => setOrient(word.id, o)}
               onremove={() => removeWord(word.id)}
               onenter={addWord}
             />
           {/each}
         </div>
         <button class="add" onclick={addWord}>+ Ajouter un mot</button>
-      </div>
-
-      <div class="block">
-        <h2>Sens autorisés</h2>
-        <div class="segment" role="group" aria-label="Sens autorisés">
-          {#each directionOptions as opt}
-            <button
-              type="button"
-              class:active={directions === opt.value}
-              aria-pressed={directions === opt.value}
-              onclick={() => (directions = opt.value)}
-            >
-              <span class="ico">{opt.icon}</span>{opt.label}
-            </button>
-          {/each}
-        </div>
       </div>
 
       <div class="block">
@@ -164,7 +147,14 @@
         </div>
       {/if}
 
-      {#if allNoCrossing}
+      {#if incomplete}
+        <p class="warn">
+          Aucune disposition ne place les {stats.requested} mots. Meilleure
+          couverture : <strong>{coverage}/{stats.requested}</strong>. Autorisez
+          « Les deux » sens sur certains mots, réduisez l'écart, ou retirez un mot
+          sans lettre commune.
+        </p>
+      {:else if allNoCrossing}
         <p class="warn">
           Aucun croisement possible avec ces contraintes — autorisez « Les deux »
           sens, ou ajoutez des mots qui partagent des lettres.
@@ -289,39 +279,6 @@
     border-color: var(--accent);
     color: var(--accent);
     background: var(--tile);
-  }
-
-  .segment {
-    display: flex;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    overflow: hidden;
-  }
-  .segment button {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 9px 4px;
-    border: none;
-    background: var(--surface);
-    color: var(--muted);
-    font-size: 13px;
-    transition: background 0.12s, color 0.12s;
-  }
-  .segment button + button {
-    border-left: 1px solid var(--line);
-  }
-  .segment button:hover {
-    background: var(--tile);
-  }
-  .segment button.active {
-    background: var(--accent);
-    color: #fff;
-  }
-  .ico {
-    font-size: 14px;
   }
 
   input[type='range'] {
