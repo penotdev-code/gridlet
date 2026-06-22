@@ -1,0 +1,19 @@
+{
+  "name": "gridlet-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build:engine": "wasm-pack build ../engine --target web --out-dir ../web/src/engine/pkg --out-name gridlet_engine --release",
+    "predev": "npm run build:engine",
+    "dev": "vite",
+    "prebuild": "npm run build:engine",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "svelte": "^5.19.0",
+    "vite": "^6.0.7"
+  }
+}

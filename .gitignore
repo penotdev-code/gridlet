@@ -1,0 +1,9 @@
+# Rust
+/engine/target/
+
+# Node / Vite
+/web/node_modules/
+/web/dist/
+
+# Generated WASM package (rebuilt by `npm run build:engine`)
+/web/src/engine/pkg/
