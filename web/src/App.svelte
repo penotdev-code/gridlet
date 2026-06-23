@@ -1,7 +1,7 @@
 <script>
   import { generateGrid } from './engine/index.js'
   import { annotate, SORTERS, SORT_OPTIONS } from './lib/metrics.js'
-  import WordRow from './lib/WordRow.svelte'
+  import WordChips from './lib/WordChips.svelte'
   import GridCard from './lib/GridCard.svelte'
 
   let nextId = 0
@@ -9,6 +9,7 @@
 
   let words = $state([makeWord('Paul'), makeWord('Camille'), makeWord('Arthur')])
   let gap = $state(1)
+
 
   let sortKey = $state('esthetique')
   let page = $state(0)
@@ -18,7 +19,6 @@
   let stats = $state(null) // { count, timeMs, truncated, pivots }
   let busy = $state(false)
   let error = $state('')
-  let focusId = $state(null)
 
   const validWords = $derived(words.filter((w) => w.text.trim().length > 0))
 
@@ -26,19 +26,35 @@
   const pageCount = $derived(Math.max(1, Math.ceil(sorted.length / PAGE_SIZE)))
   const pageGrids = $derived(sorted.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE))
 
-  function addWord() {
-    const w = makeWord()
-    words = [...words, w]
-    focusId = w.id
+  // Append words, skipping case-insensitive duplicates.
+  function addWords(list) {
+    const have = new Set(words.map((w) => w.text.trim().toLowerCase()))
+    const fresh = []
+    for (const t of list) {
+      const key = t.toLowerCase()
+      if (key && !have.has(key)) {
+        have.add(key)
+        fresh.push(makeWord(t))
+      }
+    }
+    if (fresh.length) words = [...words, ...fresh]
   }
-  function updateWord(id, text) {
-    words = words.map((w) => (w.id === id ? { ...w, text } : w))
-  }
-  function setOrient(id, orientation) {
-    words = words.map((w) => (w.id === id ? { ...w, orientation } : w))
-  }
+
   function removeWord(id) {
     words = words.filter((w) => w.id !== id)
+  }
+
+  const ORIENT_ORDER = ['both', 'horizontal', 'vertical']
+  function cycleOrient(id) {
+    words = words.map((w) =>
+      w.id === id
+        ? { ...w, orientation: ORIENT_ORDER[(ORIENT_ORDER.indexOf(w.orientation) + 1) % 3] }
+        : w
+    )
+  }
+
+  function clearAll() {
+    words = []
   }
 
   async function generate() {
@@ -95,19 +111,15 @@
           <h2>Vos mots</h2>
           <span class="count">{validWords.length}</span>
         </div>
-        <div class="words">
-          {#each words as word (word.id)}
-            <WordRow
-              {word}
-              autofocus={focusId === word.id}
-              oninput={(t) => updateWord(word.id, t)}
-              onorient={(o) => setOrient(word.id, o)}
-              onremove={() => removeWord(word.id)}
-              onenter={addWord}
-            />
-          {/each}
+
+        <WordChips {words} onadd={addWords} onremove={removeWord} oncycle={cycleOrient} />
+
+        <div class="words-actions">
+          <span class="hint">Cliquez le glyphe d'une vignette (✛ → ↓) pour son orientation.</span>
+          {#if words.length > 0}
+            <button class="link-btn" onclick={clearAll}>Tout effacer</button>
+          {/if}
         </div>
-        <button class="add" onclick={addWord}>+ Ajouter un mot</button>
       </div>
 
       <div class="block">
@@ -260,25 +272,29 @@
     font-weight: 700;
   }
 
-  .words {
+  .words-actions {
     display: flex;
-    flex-direction: column;
-    gap: 10px;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 10px;
   }
-  .add {
-    margin-top: 12px;
-    width: 100%;
-    padding: 9px;
-    border: 1px dashed var(--line);
-    border-radius: 9px;
+  .words-actions .hint {
+    margin: 0;
+    flex: 1;
+  }
+  .link-btn {
+    flex: none;
+    border: none;
     background: transparent;
     color: var(--muted);
-    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    font-size: 13px;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    white-space: nowrap;
   }
-  .add:hover {
-    border-color: var(--accent);
+  .link-btn:hover {
     color: var(--accent);
-    background: var(--tile);
   }
 
   input[type='range'] {
@@ -425,9 +441,40 @@
   @media (max-width: 860px) {
     main {
       grid-template-columns: 1fr;
+      gap: 18px;
     }
     .panel {
       position: static;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .app {
+      padding: 24px 14px 48px;
+    }
+    header h1 {
+      font-size: 26px;
+    }
+    .panel {
+      padding: 18px;
+      border-radius: 14px;
+    }
+    .cards {
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 12px;
+    }
+    .toolbar {
+      gap: 10px;
+    }
+    .sort {
+      width: 100%;
+    }
+    .sort select {
+      flex: 1;
+      min-width: 0;
+    }
+    .pager {
+      gap: 10px;
     }
   }
 </style>
