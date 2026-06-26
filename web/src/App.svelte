@@ -1,8 +1,13 @@
 <script>
   import { generateGrid } from './engine/index.js'
   import { annotate, SORTERS, SORT_OPTIONS } from './lib/metrics.js'
+  import { auth } from './lib/auth.svelte.js'
+  import { apiFetch } from './lib/api.js'
   import WordChips from './lib/WordChips.svelte'
   import GridCard from './lib/GridCard.svelte'
+  import AuthModal from './lib/AuthModal.svelte'
+  import ListsModal from './lib/ListsModal.svelte'
+  import FavoritesModal from './lib/FavoritesModal.svelte'
 
   let nextId = 0
   const makeWord = (text = '', orientation = 'both') => ({ id: nextId++, text, orientation })
@@ -57,6 +62,75 @@
     words = []
   }
 
+  // --- Account: modals, saving lists, favorites ---------------------------
+  let showAuth = $state(false)
+  let showLists = $state(false)
+  let showFavorites = $state(false)
+
+  let showSave = $state(false)
+  let saveName = $state('')
+  let saveAsTemplate = $state(false)
+  let saveBusy = $state(false)
+  let saveError = $state('')
+  let toast = $state('')
+
+  let savedFavs = $state(new Set())
+  const gridKey = (g) => g.cells.map((c) => c.row + ',' + c.col + c.ch).join('|')
+
+  function flash(msg) {
+    toast = msg
+    setTimeout(() => (toast = ''), 2500)
+  }
+
+  async function saveCurrentList() {
+    const items = validWords.map((w) => ({ text: w.text.trim(), orientation: w.orientation }))
+    if (items.length === 0) {
+      saveError = 'Ajoutez au moins un mot.'
+      return
+    }
+    saveBusy = true
+    saveError = ''
+    try {
+      await apiFetch('/lists', {
+        method: 'POST',
+        token: auth.token,
+        body: { name: saveName.trim() || 'Sans titre', items, gap, is_template: saveAsTemplate },
+      })
+      showSave = false
+      saveName = ''
+      saveAsTemplate = false
+      flash('Liste enregistrée.')
+    } catch (e) {
+      saveError = e.message ?? String(e)
+    } finally {
+      saveBusy = false
+    }
+  }
+
+  function loadList(item) {
+    words = item.items.map((it) => makeWord(it.text, it.orientation ?? 'both'))
+    gap = item.gap ?? 1
+    flash(`« ${item.name} » chargée.`)
+  }
+
+  async function saveFavorite(grid) {
+    try {
+      const payload = {
+        rows: grid.rows,
+        cols: grid.cols,
+        crossings: grid.crossings,
+        letters: grid.letters,
+        words: grid.words,
+        cells: grid.cells,
+      }
+      await apiFetch('/favorites', { method: 'POST', token: auth.token, body: { grid: payload } })
+      savedFavs = new Set(savedFavs).add(gridKey(grid))
+      flash('Ajouté aux favoris.')
+    } catch (e) {
+      flash(e.message ?? String(e))
+    }
+  }
+
   async function generate() {
     if (validWords.length === 0) {
       error = 'Ajoutez au moins un mot.'
@@ -100,8 +174,24 @@
 
 <div class="app">
   <header>
-    <h1>Gridlet</h1>
-    <p>Générez et comparez des grilles de mots croisés à partir de votre liste.</p>
+    <div class="title">
+      <h1>Gridlet</h1>
+      <p>Générez et comparez des grilles de mots croisés à partir de votre liste.</p>
+    </div>
+    {#if auth.ready}
+      <div class="account">
+        {#if auth.isAuthed}
+          <button class="acct-btn" onclick={() => (showFavorites = true)}>♥ Favoris</button>
+          <button class="acct-btn" onclick={() => (showLists = true)}>Mes listes</button>
+          <span class="email" title={auth.user.email}>{auth.user.email}</span>
+          <button class="acct-btn" onclick={() => auth.logout()}>Déconnexion</button>
+        {:else}
+          <button class="acct-btn primary-outline" onclick={() => (showAuth = true)}>
+            Se connecter
+          </button>
+        {/if}
+      </div>
+    {/if}
   </header>
 
   <main>
@@ -120,6 +210,32 @@
             <button class="link-btn" onclick={clearAll}>Tout effacer</button>
           {/if}
         </div>
+
+        {#if auth.isAuthed}
+          <div class="save-bar">
+            <button class="ghost-btn" onclick={() => (showSave = !showSave)}>
+              💾 Enregistrer la liste
+            </button>
+            <button class="ghost-btn" onclick={() => (showLists = true)}>Charger…</button>
+          </div>
+          {#if showSave}
+            <div class="save-form">
+              <input
+                type="text"
+                placeholder="Nom de la liste"
+                bind:value={saveName}
+                onkeydown={(e) => e.key === 'Enter' && saveCurrentList()}
+              />
+              <label class="tmpl">
+                <input type="checkbox" bind:checked={saveAsTemplate} /> Comme modèle
+              </label>
+              {#if saveError}<p class="error">{saveError}</p>{/if}
+              <button class="primary small" onclick={saveCurrentList} disabled={saveBusy}>
+                {saveBusy ? '…' : 'Enregistrer'}
+              </button>
+            </div>
+          {/if}
+        {/if}
       </div>
 
       <div class="block">
@@ -176,7 +292,12 @@
       {#if pageGrids.length > 0}
         <div class="cards">
           {#each pageGrids as grid, i (grid.cells.map((c) => c.row + ',' + c.col + c.ch).join('|'))}
-            <GridCard {grid} rank={page * PAGE_SIZE + i + 1} />
+            <GridCard
+              {grid}
+              rank={page * PAGE_SIZE + i + 1}
+              onfavorite={auth.isAuthed ? saveFavorite : undefined}
+              saved={savedFavs.has(gridKey(grid))}
+            />
           {/each}
         </div>
 
@@ -204,11 +325,31 @@
   </main>
 </div>
 
+{#if showAuth}
+  <AuthModal onclose={() => (showAuth = false)} />
+{/if}
+{#if showLists}
+  <ListsModal onclose={() => (showLists = false)} onload={loadList} />
+{/if}
+{#if showFavorites}
+  <FavoritesModal onclose={() => (showFavorites = false)} />
+{/if}
+{#if toast}
+  <div class="toast">{toast}</div>
+{/if}
+
 <style>
   .app {
     max-width: 1200px;
     margin: 0 auto;
     padding: 40px 24px 64px;
+  }
+  header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
   }
   header h1 {
     margin: 0;
@@ -217,6 +358,113 @@
   header p {
     margin: 6px 0 0;
     color: var(--muted);
+  }
+  .account {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .acct-btn {
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 13px;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .acct-btn:hover {
+    background: var(--tile);
+    border-color: var(--accent);
+  }
+  .acct-btn.primary-outline {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .email {
+    font-size: 13px;
+    color: var(--muted);
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .save-bar {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .ghost-btn {
+    flex: 1;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 13px;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .ghost-btn:hover {
+    background: var(--tile);
+    border-color: var(--accent);
+  }
+  .save-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--tile);
+  }
+  .save-form input[type='text'] {
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    outline: none;
+  }
+  .save-form input[type='text']:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .tmpl {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .primary.small {
+    margin-top: 0;
+    padding: 9px;
+    font-size: 14px;
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--ink);
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 999px;
+    font-size: 14px;
+    box-shadow: 0 6px 20px rgba(44, 42, 38, 0.25);
+    z-index: 60;
+    animation: fade 0.15s ease-out;
+  }
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
   }
 
   main {

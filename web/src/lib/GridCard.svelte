@@ -2,11 +2,23 @@
   // A result card: a grid preview plus its key stats.
   import GridView from './GridView.svelte'
 
-  let { grid, rank } = $props()
+  let { grid, rank, onfavorite, saved = false } = $props()
 </script>
 
 <div class="card">
   <div class="rank">#{rank}</div>
+  {#if onfavorite}
+    <button
+      class="fav"
+      class:saved
+      title={saved ? 'Enregistré dans vos favoris' : 'Mettre en favori'}
+      aria-label="Mettre en favori"
+      disabled={saved}
+      onclick={() => onfavorite(grid)}
+    >
+      {saved ? '♥' : '♡'}
+    </button>
+  {/if}
   <div class="preview">
     <GridView {grid} max={24} />
   </div>
@@ -43,6 +55,29 @@
     font-size: 12px;
     font-weight: 700;
     color: var(--muted);
+  }
+  .fav {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    border: none;
+    background: transparent;
+    color: var(--accent);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 6px;
+    transition: background 0.12s, transform 0.05s;
+  }
+  .fav:hover:not(:disabled) {
+    background: var(--accent-soft);
+  }
+  .fav:active:not(:disabled) {
+    transform: scale(0.92);
+  }
+  .fav.saved {
+    cursor: default;
   }
   .preview {
     flex: 1;
